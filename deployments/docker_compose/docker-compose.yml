@@ -1,0 +1,219 @@
+services:
+  # --- Main Application Service ---
+  aac-paperless:
+    image: "ghcr.io/paperless-ngx/paperless-ngx:3.4.0"
+    container_name: "aac-paperless"
+    hostname: "docs"
+    restart: "always"
+
+
+    environment:
+      PUID: "1000"
+      PGID: "2000"
+      TZ: "Europe/Berlin"
+      USERMAP_UID: "1000"
+      USERMAP_GID: "2000"
+      PAPERLESS_PORT: "8000"
+      PAPERLESS_URL: "https://docs.example.com"
+      PAPERLESS_TIME_ZONE: "Europe/Berlin"
+      PAPERLESS_OCR_LANGUAGE: "deu"
+      PAPERLESS_CONSUMER_DELETE_DUPLICATES: "true"
+      PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: "true"
+      PAPERLESS_CONSUMER_POLLING: "10"
+      PAPERLESS_DBENGINE: "postgresql"
+      PAPERLESS_DBHOST: "aac-paperless-db"
+      PAPERLESS_DBNAME: "paperless"
+      PAPERLESS_DBUSER: "paperless"
+      PAPERLESS_DBPORT: "5432"
+      PAPERLESS_REDIS: "redis://aac-paperless-redis:6379"
+      PAPERLESS_APPS: "${PAPERLESS_APPS:?set PAPERLESS_APPS in .env (see .env.example)}"
+      POSTGRES_USER: "paperless"
+      POSTGRES_DB: "paperless"
+      PAPERLESS_PASSPHRASE: "${PAPERLESS_PASSPHRASE:?set PAPERLESS_PASSPHRASE in .env (see .env.example)}"
+      PAPERLESS_SECRET_KEY: "${PAPERLESS_SECRET_KEY:?set PAPERLESS_SECRET_KEY in .env (see .env.example)}"
+      PAPERLESS_ADMIN_USER: "admin"
+      PAPERLESS_ADMIN_PASSWORD: "${PAPERLESS_ADMIN_PASSWORD:?set PAPERLESS_ADMIN_PASSWORD in .env (see .env.example)}"
+      PAPERLESS_DBPASS: "${PAPERLESS_DBPASS:?set PAPERLESS_DBPASS in .env (see .env.example)}"
+      PAPERLESS_AI_TOKEN: "${PAPERLESS_AI_TOKEN:?set PAPERLESS_AI_TOKEN in .env (see .env.example)}"
+      HOMEPAGE_WIDGET_KEY: "${HOMEPAGE_WIDGET_KEY:?set HOMEPAGE_WIDGET_KEY in .env (see .env.example)}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}"
+      PAPERLESS_SOCIALACCOUNT_PROVIDERS: "${PAPERLESS_SOCIALACCOUNT_PROVIDERS:?set PAPERLESS_SOCIALACCOUNT_PROVIDERS in .env (see .env.example)}"
+    ports:
+      - "8190:8000/tcp"
+
+    volumes:
+      - "/mnt/homenas/server/paperless/import:/usr/src/paperless/consume"
+      - "/mnt/homenas/server/paperless/export:/usr/src/paperless/export"
+      - "/mnt/homenas/server/paperless/saved:/usr/src/paperless/saved"
+      - "/mnt/homenas/server/paperless/media:/usr/src/paperless/media"
+      - "/export/docker/aac-paperless/data:/usr/src/paperless/data"
+
+    networks:
+      - exposed
+      - interconnect
+      - secured
+      - stack_internal
+
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.aac-paperless.rule: "Host(`docs.example.com`)"
+      traefik.http.routers.aac-paperless.entrypoints: "websecure"
+      traefik.http.routers.aac-paperless.tls: "true"
+      traefik.http.routers.aac-paperless.tls.certresolver: "ionos"
+      traefik.docker.network: "services-secured"
+      traefik.http.services.aac-paperless.loadbalancer.server.port: "8000"
+      traefik.http.services.aac-paperless.loadbalancer.server.scheme: "http"
+      auto-dns.createWildcard.aac-paperless: "true"
+      auto-dns.customDNS.aac-paperless: "true"
+      auto-dns.customDOMAIN.aac-paperless: "example.com"
+      auto-dns.customHost.aac-paperless: "docs"
+      homepage.group: "Finanzen - Dokumente - Organisation"
+      homepage.name: "Dokumente"
+      homepage.href: "https://docs.example.com"
+      homepage.icon: "paperless-ngx.png"
+      homepage.description: "Dokumentenmanagement mit OCR"
+
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-S", "-L", "--max-time", "5", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+
+    depends_on:
+      aac-paperless-db:
+        condition: service_healthy
+      aac-paperless-redis:
+        condition: service_healthy
+      aac-paperless-ai:
+        condition: service_started
+
+
+  # --- Service Dependencies (Sidecars) ---
+  aac-paperless-db:
+    image: "postgres:17"
+    container_name: "aac-paperless-db"
+    restart: "always"
+    
+
+    env_file:
+      - .env
+    environment:
+      PUID: "1000"
+      PGID: "2000"
+      TZ: "Europe/Berlin"
+
+
+    volumes:
+      - "/export/docker/aac-paperless/db:/var/lib/postgresql/data"
+
+    networks:
+      - stack_internal
+
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER:-postgres}\" -d \"$${POSTGRES_DB:-postgres}\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+
+  aac-paperless-redis:
+    image: "redis:8.6.1"
+    container_name: "aac-paperless-redis"
+    restart: "always"
+    
+
+    env_file:
+      - .env
+    environment:
+      PUID: "1000"
+      PGID: "2000"
+      TZ: "Europe/Berlin"
+
+
+    volumes:
+      - "/export/docker/aac-paperless/redis-data:/data"
+      - "/export/docker/aac-paperless/redis:/data"
+
+    networks:
+      - stack_internal
+
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+
+  aac-paperless-ai:
+    image: "admonstrator/paperless-ai-next:v2026.10.03"
+    container_name: "aac-paperless-ai"
+    restart: "unless-stopped"
+    
+
+    env_file:
+      - .env
+    environment:
+      PAPERLESS_URL: "https://docs.example.com"
+      PAPERLESS_TOKEN: "${PAPERLESS_TOKEN:?set PAPERLESS_TOKEN in .env (see .env.example)}"
+      PUID: "1000"
+      PGID: "2000"
+      TZ: "Europe/Berlin"
+
+
+    volumes:
+      - "/export/docker/aac-paperless/ai_data:/app/data"
+
+    networks:
+      - secured
+      - stack_internal
+
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: "services-secured"
+      traefik.http.routers.aac-paperless-ai.entrypoints: "websecure"
+      traefik.http.routers.aac-paperless-ai.rule: "Host(`docs-ai.example.com`)"
+      traefik.http.routers.aac-paperless-ai.tls: "true"
+      traefik.http.routers.aac-paperless-ai.tls.certresolver: "ionos"
+      traefik.http.services.aac-paperless-ai.loadbalancer.server.port: "3000"
+      traefik.http.services.aac-paperless-ai.loadbalancer.server.scheme: "http"
+      homepage.name: "Paperless AI - Docker Hydra"
+      homepage.description: "AI Classifier Interface"
+      homepage.group: "Finanzen - Dokumente - Organisation"
+      homepage.href: "https://docs-ai.example.com"
+      homepage.icon: "/icons/paperlessai.png"
+      auto-dns.createWildcard.aac-paperless-ai: "true"
+      auto-dns.customDNS.aac-paperless-ai: "true"
+      auto-dns.customDOMAIN.aac-paperless-ai: "example.com"
+      auto-dns.customHost.aac-paperless-ai: "docs-ai"
+
+
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    security_opt:
+    - no-new-privileges=true
+
+
+
+networks:
+  secured:
+    name: "services-secured"
+    external: true
+  exposed:
+    name: "services-exposed"
+    external: true
+  interconnect:
+    name: "docker-default"
+    external: true
+  stack_internal:
+    name: "aac-paperless_stack_internal"
+    driver: "bridge"
+

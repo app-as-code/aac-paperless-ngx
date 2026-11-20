@@ -1,0 +1,240 @@
+service:
+  name: aac-paperless
+  friendly_name: Dokumente
+  image_repo: ghcr.io/paperless-ngx/paperless-ngx
+  image_tag: 3.4.0
+  description: Dokumentenmanagement mit OCR
+  icon: paperless-ngx.png
+  category: Finanzen - Dokumente - Organisation
+  stage: prod
+  hostname: docs
+ports:
+- name: web
+  port: 8000
+  external_port: 8190
+  protocol: TCP
+config:
+  domain_name: example.com
+  generate_hostname: false
+  integrations:
+    homepage:
+      enabled: true
+    autodns:
+      enabled: true
+      create_wildcard: true
+    traefik:
+      enabled: true
+      cert_resolver: ionos
+      entrypoint: websecure
+  schema_version: 2
+stage_overrides:
+  prod:
+    config:
+      generate_hostname: false
+    service:
+      hostname: docs
+secrets:
+  PAPERLESS_PASSPHRASE: CHANGE_ME
+  PAPERLESS_SECRET_KEY: CHANGE_ME
+  PAPERLESS_ADMIN_USER: admin
+  PAPERLESS_ADMIN_PASSWORD: CHANGE_ME
+  PAPERLESS_DBPASS: CHANGE_ME
+  PAPERLESS_AI_TOKEN: CHANGE_ME
+  HOMEPAGE_WIDGET_KEY: CHANGE_ME
+  POSTGRES_PASSWORD: CHANGE_ME
+  PAPERLESS_SOCIALACCOUNT_PROVIDERS: CHANGE_ME
+  PAPERLESS_TOKEN: CHANGE_ME
+volumes:
+  data:
+    description: Paperless-NGX application data
+  redis:
+    description: Data for redis
+  ai_data:
+    description: Data for ai
+  paperless_import:
+    type: bind
+    source: /mnt/homenas/server/paperless/import
+  paperless_export:
+    type: bind
+    source: /mnt/homenas/server/paperless/export
+  paperless_saved:
+    type: bind
+    source: /mnt/homenas/server/paperless/saved
+  paperless_media:
+    type: bind
+    source: /mnt/homenas/server/paperless/media
+  db:
+    description: Data for database
+deployment_strategy:
+  main:
+    enabled: true
+    target_stage: prod
+  dev:
+    enabled: true
+    target_stage: dev
+  test:
+    enabled: false
+    target_stage: test
+  ansible-dev:
+    enabled: true
+    target_stage: dev
+  iac-dev:
+    enabled: true
+    target_stage: dev
+  template-dev:
+    enabled: true
+    target_stage: dev
+deployments:
+  docker_compose:
+    restart_policy: always
+    host_base_path: /export/docker
+    healthcheck:
+      test:
+      - CMD
+      - curl
+      - -fs
+      - -S
+      - -L
+      - --max-time
+      - '5'
+      - http://localhost:8000
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s
+    volumes:
+    - paperless_import:/usr/src/paperless/consume
+    - paperless_export:/usr/src/paperless/export
+    - paperless_saved:/usr/src/paperless/saved
+    - paperless_media:/usr/src/paperless/media
+    - data:/usr/src/paperless/data
+    environment:
+      PUID: '{{ vars.PUID }}'
+      PGID: '{{ vars.PGID }}'
+      TZ: '{{ vars.TZ }}'
+      USERMAP_UID: '{{ vars.USERMAP_UID }}'
+      USERMAP_GID: '{{ vars.USERMAP_GID }}'
+      PAPERLESS_PORT: '{{ vars.PAPERLESS_PORT }}'
+      PAPERLESS_URL: '{{ vars.PAPERLESS_URL }}'
+      PAPERLESS_TIME_ZONE: '{{ vars.PAPERLESS_TIME_ZONE }}'
+      PAPERLESS_OCR_LANGUAGE: '{{ vars.PAPERLESS_OCR_LANGUAGE }}'
+      PAPERLESS_CONSUMER_DELETE_DUPLICATES: '{{ vars.PAPERLESS_CONSUMER_DELETE_DUPLICATES
+        }}'
+      PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: '{{ vars.PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS
+        }}'
+      PAPERLESS_CONSUMER_POLLING: '{{ vars.PAPERLESS_CONSUMER_POLLING }}'
+      PAPERLESS_DBENGINE: '{{ vars.PAPERLESS_DBENGINE }}'
+      PAPERLESS_DBHOST: '{{ vars.PAPERLESS_DBHOST }}'
+      PAPERLESS_DBNAME: '{{ vars.PAPERLESS_DBNAME }}'
+      PAPERLESS_DBUSER: '{{ vars.PAPERLESS_DBUSER }}'
+      PAPERLESS_DBPORT: '{{ vars.PAPERLESS_DBPORT }}'
+      PAPERLESS_REDIS: '{{ vars.PAPERLESS_REDIS }}'
+      PAPERLESS_APPS: '{{ vars.PAPERLESS_APPS }}'
+      POSTGRES_USER: '{{ vars.POSTGRES_USER }}'
+      POSTGRES_DB: '{{ vars.POSTGRES_DB }}'
+      PAPERLESS_PASSPHRASE: '{{ secrets.PAPERLESS_PASSPHRASE }}'
+      PAPERLESS_SECRET_KEY: '{{ secrets.PAPERLESS_SECRET_KEY }}'
+      PAPERLESS_ADMIN_USER: '{{ secrets.PAPERLESS_ADMIN_USER }}'
+      PAPERLESS_ADMIN_PASSWORD: '{{ secrets.PAPERLESS_ADMIN_PASSWORD }}'
+      PAPERLESS_DBPASS: '{{ secrets.PAPERLESS_DBPASS }}'
+      PAPERLESS_AI_TOKEN: '{{ secrets.PAPERLESS_AI_TOKEN }}'
+      HOMEPAGE_WIDGET_KEY: '{{ secrets.HOMEPAGE_WIDGET_KEY }}'
+      POSTGRES_PASSWORD: '{{ secrets.POSTGRES_PASSWORD }}'
+      PAPERLESS_SOCIALACCOUNT_PROVIDERS: '{{ secrets.PAPERLESS_SOCIALACCOUNT_PROVIDERS
+        }}'
+dependencies:
+  database:
+    import: catalog/postgres.yml
+    overrides:
+      name: aac-paperless-db
+      image_tag: 17
+      volumes:
+        db:
+          target: /var/lib/postgresql/data
+          description: Persistent storage for db
+      environment:
+        PUID: '{{ vars.PUID }}'
+        PGID: '{{ vars.PGID }}'
+        TZ: '{{ vars.TZ }}'
+  redis:
+    import: catalog/redis.yml
+    overrides:
+      name: aac-paperless-redis
+      image_tag: 8.6.1
+      volumes:
+        redis:
+          target: /data
+          description: Persistent storage for redis
+      environment:
+        PUID: '{{ vars.PUID }}'
+        PGID: '{{ vars.PGID }}'
+        TZ: '{{ vars.TZ }}'
+  ai:
+    name: aac-paperless-ai
+    image_repo: admonstrator/paperless-ai-next
+    image_tag: v2026.10.03
+    restart_policy: unless-stopped
+    cap_drop:
+    - ALL
+    cap_add:
+    - CHOWN
+    - SETUID
+    - SETGID
+    - DAC_OVERRIDE
+    - FOWNER
+    security_opt:
+    - no-new-privileges=true
+    environment:
+      PAPERLESS_URL: '{{ vars.PAPERLESS_URL }}'
+      PAPERLESS_TOKEN: '{{ secrets.PAPERLESS_TOKEN }}'
+      PUID: '{{ vars.PUID }}'
+      PGID: '{{ vars.PGID }}'
+      TZ: '{{ vars.TZ }}'
+    volumes:
+      ai_data:
+        target: /app/data
+        description: Persistent storage for ai_data
+    networks_to_join:
+    - secured
+    - stack_internal
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: services-secured
+      traefik.http.routers.aac-paperless-ai.entrypoints: websecure
+      traefik.http.routers.aac-paperless-ai.rule: Host(`docs-ai.{{ config.domain_name
+        }}`)
+      traefik.http.routers.aac-paperless-ai.tls: 'true'
+      traefik.http.routers.aac-paperless-ai.tls.certresolver: ionos
+      traefik.http.services.aac-paperless-ai.loadbalancer.server.port: '3000'
+      traefik.http.services.aac-paperless-ai.loadbalancer.server.scheme: http
+      homepage.name: Paperless AI - Docker Hydra
+      homepage.description: AI Classifier Interface
+      homepage.group: Finanzen - Dokumente - Organisation
+      homepage.href: https://docs-ai.{{ config.domain_name }}
+      homepage.icon: /icons/paperlessai.png
+      auto-dns.createWildcard.aac-paperless-ai: 'true'
+      auto-dns.customDNS.aac-paperless-ai: 'true'
+      auto-dns.customDOMAIN.aac-paperless-ai: '{{ config.domain_name }}'
+      auto-dns.customHost.aac-paperless-ai: docs-ai
+vars:
+  PUID: '1000'
+  PGID: '2000'
+  TZ: Europe/Berlin
+  USERMAP_UID: '1000'
+  USERMAP_GID: '2000'
+  PAPERLESS_PORT: '8000'
+  PAPERLESS_URL: https://docs.example.com
+  PAPERLESS_TIME_ZONE: Europe/Berlin
+  PAPERLESS_OCR_LANGUAGE: deu
+  PAPERLESS_CONSUMER_DELETE_DUPLICATES: 'true'
+  PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: 'true'
+  PAPERLESS_CONSUMER_POLLING: '10'
+  PAPERLESS_DBENGINE: postgresql
+  PAPERLESS_DBHOST: aac-paperless-db
+  PAPERLESS_DBNAME: paperless
+  PAPERLESS_DBUSER: paperless
+  PAPERLESS_DBPORT: '5432'
+  PAPERLESS_REDIS: redis://aac-paperless-redis:6379
+  PAPERLESS_APPS: CHANGE_ME
+  POSTGRES_USER: paperless
+  POSTGRES_DB: paperless
